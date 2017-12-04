@@ -4,16 +4,71 @@ import os
 import cv2
 import keras
 import numpy as np
-from keras.callbacks import TensorBoard, ModelCheckpoint, LearningRateScheduler
+from keras.callbacks import TensorBoard, ModelCheckpoint
 from keras.layers.convolutional import Convolution2D, MaxPooling2D
 from keras.layers.core import Dense, Dropout, Activation, Flatten
 from keras.models import Sequential
-from keras.optimizers import SGD
+from keras.optimizers import Adam
 from keras.preprocessing.image import ImageDataGenerator
 from keras.utils import np_utils
 
 print("image_dim_ordering:", keras.backend.image_dim_ordering())
 print("image_data_format:", keras.backend.image_data_format())
+
+
+def main():
+    label_images_directory = './data/card-image-trimmed'
+    label_image_files = os.listdir(label_images_directory)
+    label_image_files.sort()
+    label_names = [os.path.splitext(f)[0] for f in label_image_files]
+    num_labels = len(label_names)
+
+    image_cols, image_rows, image_channels = 100, 156, 3
+
+    X_train = np.zeros((num_labels, image_rows, image_cols, image_channels))
+    y_train = np.zeros((num_labels,))
+
+    for index, filename in enumerate(label_image_files):
+        path = os.path.join(label_images_directory, filename)
+        X_train[index, :, :, :] = load_and_resize(image_cols, image_rows, path).astype('float32') / 255.0
+        y_train[index] = index
+
+    y_train = np_utils.to_categorical(y_train, num_labels)
+
+    model = create_model(num_labels, image_rows, image_cols, image_channels)
+    optimizer = Adam(lr=0.001, beta_1=0.9, beta_2=0.999, epsilon=1e-08)
+    model.compile(optimizer=optimizer, loss='categorical_crossentropy', metrics=['accuracy'])
+
+    datagen = ImageDataGenerator(
+        # featurewise_center=True,
+        # featurewise_std_normalization=True,
+        rotation_range=2,
+        width_shift_range=0.2,
+        height_shift_range=0.2,
+        horizontal_flip=True,
+        vertical_flip=True,
+    )
+    datagen.fit(X_train)
+
+    tensorboard = TensorBoard(log_dir="./logs", write_images=True)
+
+    model_output_dir = './model/'
+    os.makedirs(model_output_dir, exist_ok=True)
+    mode_basename = 'weights.h5'
+    model_checkpoint = ModelCheckpoint(filepath=os.path.join(model_output_dir, mode_basename), verbose=1)
+
+    sanity_check = SanityCheckCallback(X_train, y_train)
+
+    save_to_dir = None  # './data/datagen'
+    if save_to_dir is not None:
+        os.makedirs(save_to_dir, exist_ok=True)
+
+    model.fit_generator(datagen.flow(x=X_train, y=y_train, save_to_dir=save_to_dir)
+                        , steps_per_epoch=X_train.shape[0]
+                        , epochs=2000
+                        , callbacks=[tensorboard, model_checkpoint, sanity_check]
+                        # , validation_data=(X_train, y_train)
+                        )
 
 
 def create_model(num_classes, image_rows, image_cols, image_channels):
@@ -64,72 +119,6 @@ class SanityCheckCallback(keras.callbacks.Callback):
         metric = [max(enumerate(m), key=operator.itemgetter(1)) for m in y_pred]
 
         print("metric:", metric)
-
-
-def main():
-    label_images_directory = './data/card-image-trimmed'
-    label_image_files = os.listdir(label_images_directory)
-    label_image_files.sort()
-    label_names = [os.path.splitext(f)[0] for f in label_image_files]
-    num_classes = len(label_names)
-
-    image_cols, image_rows, image_channels = 100, 156, 3
-
-    X = np.zeros((num_classes, image_rows, image_cols, image_channels))
-    y = np.zeros((num_classes,))
-
-    for index, filename in enumerate(label_image_files):
-        path = os.path.join(label_images_directory, filename)
-        image = load_and_resize(image_cols, image_rows, path)
-        X[index, :, :, :] = image
-        y[index] = index
-
-    y = np_utils.to_categorical(y, num_classes)
-
-    model = create_model(num_classes, image_rows, image_cols, image_channels)
-
-    # optimizer = Adam(lr=0.001, beta_1=0.9, beta_2=0.999, epsilon=1e-08)
-    lr = 0.01
-    optimizer = SGD(lr=0.01, decay=1e-6, momentum=0.9, nesterov=True)
-
-    def lr_schedule(epoch):
-        return lr * (0.1 ** int(epoch / 10))
-
-    model.compile(optimizer=optimizer, loss='categorical_crossentropy', metrics=['accuracy'])
-
-    datagen = ImageDataGenerator(
-        featurewise_center=True,
-        featurewise_std_normalization=True,
-        rotation_range=2,
-        width_shift_range=0.2,
-        height_shift_range=0.2,
-        horizontal_flip=True,
-        vertical_flip=True,
-    )
-
-    tensorboard = TensorBoard(log_dir="./logs", write_images=True)
-
-    model_output_dir = './model/'
-    os.makedirs(model_output_dir, exist_ok=True)
-    mode_basename = 'weights.h5'
-    model_checkpoint = ModelCheckpoint(filepath=os.path.join(model_output_dir, mode_basename), verbose=1)
-
-    sanity_check = SanityCheckCallback(X, y)
-
-    datagen.fit(X)
-
-    # visually preview the data
-    # while True:
-    #     transform = datagen.random_transform(X[0])
-    #     cv2.imshow("name", transform)
-    #     cv2.waitKey(0)
-
-    model.fit_generator(datagen.flow(X, y)
-                        , steps_per_epoch=X.shape[0]
-                        , epochs=2000
-                        , callbacks=[tensorboard, model_checkpoint, sanity_check, LearningRateScheduler(lr_schedule)]
-                        , validation_data=(X, y)
-                        )
 
 
 def load_and_resize(image_cols, image_rows, path):
