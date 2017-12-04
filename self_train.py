@@ -12,9 +12,6 @@ from keras.optimizers import Adam
 from keras.preprocessing.image import ImageDataGenerator
 from keras.utils import np_utils
 
-print("image_dim_ordering:", keras.backend.image_dim_ordering())
-print("image_data_format:", keras.backend.image_data_format())
-
 
 def main():
     label_images_directory = './data/card-image-trimmed'
@@ -125,6 +122,10 @@ def load_and_resize(image_cols, image_rows, path):
     image = cv2.imread(path)
     image = cv2.resize(image, (image_cols, image_rows))
     return image
+
+
+print("image_dim_ordering:", keras.backend.image_dim_ordering())
+print("image_data_format:", keras.backend.image_data_format())
 
 
 main()
