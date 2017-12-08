@@ -8,6 +8,7 @@ from keras.callbacks import TensorBoard, ModelCheckpoint
 from keras.layers.convolutional import Convolution2D, MaxPooling2D
 from keras.layers.core import Dense, Dropout, Activation, Flatten
 from keras.models import Sequential
+from keras.models import load_model
 from keras.optimizers import Adam
 from keras.preprocessing.image import ImageDataGenerator
 from keras.utils import np_utils
@@ -27,44 +28,61 @@ def main():
 
     for index, filename in enumerate(label_image_files):
         path = os.path.join(label_images_directory, filename)
-        X_train[index, :, :, :] = load_and_resize(image_cols, image_rows, path).astype('float32') / 255.0
+        X_train[index, :, :, :] = load_and_resize(image_cols, image_rows, path).astype('float32')
         y_train[index] = index
 
     y_train = np_utils.to_categorical(y_train, num_labels)
 
-    model = create_model(num_labels, image_rows, image_cols, image_channels)
-    optimizer = Adam(lr=0.001, beta_1=0.9, beta_2=0.999, epsilon=1e-08)
-    model.compile(optimizer=optimizer, loss='categorical_crossentropy', metrics=['accuracy'])
+    model_output_dir = './model/'
+    if not os.path.exists(model_output_dir):
+        os.makedirs(model_output_dir)
+    mode_basename = 'weights.h5'
+    model_filepath = os.path.join(model_output_dir, mode_basename)
+
+    if os.path.exists(model_filepath):
+        model = load_model(model_filepath)
+    else:
+        model = create_model(num_labels, image_rows, image_cols, image_channels)
+        optimizer = Adam(lr=0.001, beta_1=0.9, beta_2=0.999, epsilon=1e-08)
+        model.compile(optimizer=optimizer, loss='categorical_crossentropy', metrics=['accuracy'])
 
     datagen = ImageDataGenerator(
         # featurewise_center=True,
         # featurewise_std_normalization=True,
-        rotation_range=2,
+        channel_shift_range=64,
+        shear_range=0.2,
+        zoom_range=0.2,
+        rotation_range=15,
         width_shift_range=0.2,
         height_shift_range=0.2,
         horizontal_flip=True,
         vertical_flip=True,
+        rescale=1.0 / 255.0
     )
     datagen.fit(X_train)
 
+    datagen_test = ImageDataGenerator(
+        rescale=1.0 / 255.0
+    )
+    datagen_test.fit(X_train)
+
     tensorboard = TensorBoard(log_dir="./logs", write_images=True)
 
-    model_output_dir = './model/'
-    os.makedirs(model_output_dir, exist_ok=True)
-    mode_basename = 'weights.h5'
-    model_checkpoint = ModelCheckpoint(filepath=os.path.join(model_output_dir, mode_basename), verbose=1)
+    model_checkpoint = ModelCheckpoint(filepath=model_filepath, save_best_only=True, verbose=1)
 
     sanity_check = SanityCheckCallback(X_train, y_train)
 
     save_to_dir = None  # './data/datagen'
-    if save_to_dir is not None:
-        os.makedirs(save_to_dir, exist_ok=True)
+    save_to_dir = './data/datagen'
+    if save_to_dir is not None and not os.path.exists(save_to_dir):
+        os.makedirs(save_to_dir)
 
     model.fit_generator(datagen.flow(x=X_train, y=y_train, save_to_dir=save_to_dir)
                         , steps_per_epoch=X_train.shape[0]
                         , epochs=2000
                         , callbacks=[tensorboard, model_checkpoint, sanity_check]
-                        # , validation_data=(X_train, y_train)
+                        , validation_data=datagen_test.flow(x=X_train, y=y_train)
+                        , validation_steps=20
                         )
 
 
@@ -101,7 +119,7 @@ def create_model(num_classes, image_rows, image_cols, image_channels):
 
 class SanityCheckCallback(keras.callbacks.Callback):
     def __init__(self, X, y):
-        super().__init__()
+        super(SanityCheckCallback, self).__init__()
         self.X = X
         self.y = y
 
@@ -126,6 +144,5 @@ def load_and_resize(image_cols, image_rows, path):
 
 print("image_dim_ordering:", keras.backend.image_dim_ordering())
 print("image_data_format:", keras.backend.image_data_format())
-
 
 main()
