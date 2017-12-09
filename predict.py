@@ -29,7 +29,7 @@ X = np.zeros((len(paths), image_rows, image_cols, 3))
 
 for i, path in enumerate(paths):
     image = load_and_resize(image_cols, image_rows, path)
-    X[i, :, :, :] = image.astype('float32') / 255
+    X[i, :, :, :] = image.astype('float32') / 255.0
 
 value = model.predict(X)
 

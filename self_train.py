@@ -4,7 +4,9 @@ import os
 import cv2
 import keras
 import numpy as np
+from keras import Input
 from keras.callbacks import TensorBoard, ModelCheckpoint
+from keras.layers import GaussianNoise
 from keras.layers.convolutional import Convolution2D, MaxPooling2D
 from keras.layers.core import Dense, Dropout, Activation, Flatten
 from keras.models import Sequential
@@ -43,8 +45,10 @@ def main():
         model = load_model(model_filepath)
     else:
         model = create_model(num_labels, image_rows, image_cols, image_channels)
-        optimizer = Adam(lr=0.001, beta_1=0.9, beta_2=0.999, epsilon=1e-08)
+        optimizer = Adam()
         model.compile(optimizer=optimizer, loss='categorical_crossentropy', metrics=['accuracy'])
+
+    model.summary()
 
     datagen = ImageDataGenerator(
         # featurewise_center=True,
@@ -52,9 +56,9 @@ def main():
         channel_shift_range=64,
         shear_range=0.2,
         zoom_range=0.2,
-        rotation_range=15,
-        width_shift_range=0.2,
-        height_shift_range=0.2,
+        rotation_range=1,
+        width_shift_range=0.3,
+        height_shift_range=0.3,
         horizontal_flip=True,
         vertical_flip=True,
         rescale=1.0 / 255.0
@@ -68,7 +72,7 @@ def main():
 
     tensorboard = TensorBoard(log_dir="./logs", write_images=True)
 
-    model_checkpoint = ModelCheckpoint(filepath=model_filepath, save_best_only=True, verbose=1)
+    model_checkpoint = ModelCheckpoint(filepath=model_filepath, save_best_only=False, verbose=1)
 
     sanity_check = SanityCheckCallback(X_train, y_train)
 
@@ -85,25 +89,40 @@ def main():
                         , validation_steps=20
                         )
 
+    # epochs = 2000
+    # for e in range(epochs):
+    #     print('Epoch', e)
+    #     batches = 0
+    #     for x_batch, y_batch in datagen.flow(X_train, y_train, batch_size=32):
+    #         model.fit(x_batch, y_batch, validation_data=datagen_test.flow(x=X_train, y=y_train))
+    #         batches += 1
+    #         if batches >= len(X_train) / 32:
+    #             # we need to break the loop by hand because
+    #             # the generator loops indefinitely
+    #             break
+
 
 def create_model(num_classes, image_rows, image_cols, image_channels):
     model = Sequential()
 
-    model.add(Convolution2D(32, 3, input_shape=(image_rows, image_cols, image_channels,)))
-    model.add(Activation('relu'))
-
-    model.add(Convolution2D(32, 3))
-    model.add(Activation('relu'))
-    model.add(MaxPooling2D(pool_size=(2, 2)))
-    model.add(Dropout(0.25))
-
+    percent_noise = 0.1
+    noise = (1.0/255) * percent_noise
+    model.add(GaussianNoise(noise, input_shape=(image_rows, image_cols, image_channels,)))
     model.add(Convolution2D(32, 3))
     model.add(Activation('relu'))
 
     model.add(Convolution2D(32, 3))
     model.add(Activation('relu'))
     model.add(MaxPooling2D(pool_size=(2, 2)))
-    model.add(Dropout(0.25))
+    model.add(Dropout(0.5))
+
+    model.add(Convolution2D(16, 3))
+    model.add(Activation('relu'))
+
+    model.add(Convolution2D(8, 3))
+    model.add(Activation('relu'))
+    model.add(MaxPooling2D(pool_size=(2, 2)))
+    model.add(Dropout(0.5))
 
     model.add(Flatten())
 
@@ -120,7 +139,7 @@ def create_model(num_classes, image_rows, image_cols, image_channels):
 class SanityCheckCallback(keras.callbacks.Callback):
     def __init__(self, X, y):
         super(SanityCheckCallback, self).__init__()
-        self.X = X
+        self.X = X / 255.0
         self.y = y
 
     # def on_batch_begin(self, batch, logs=None):
